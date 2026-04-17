@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Acquire</title>
+<script src="/socket.io/socket.io.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#f5f4f0;color:#1a1a1a;min-height:100vh}
+
+.screen{display:none}
+.screen.active{display:block}
+
+/* ── Lobby ── */
+#screen-lobby{display:flex;align-items:center;justify-content:center;min-height:100vh;padding:1rem}
+.lobby-card{background:#fff;border-radius:16px;border:0.5px solid #ddd;padding:2rem;width:100%;max-width:440px;box-shadow:0 2px 16px rgba(0,0,0,0.06)}
+.lobby-card h1{font-size:32px;font-weight:600;margin-bottom:4px;letter-spacing:-1px}
+.lobby-card .sub{font-size:14px;color:#666;margin-bottom:1.5rem}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12px;font-weight:500;color:#666;margin-bottom:4px;text-transform:uppercase;letter-spacing:0.5px}
+.field input,.field select{width:100%;padding:10px 12px;border:1px solid #ddd;border-radius:8px;font-size:15px;background:#fff;color:#1a1a1a;outline:none}
+.field input:focus{border-color:#185FA5}
+.btn{padding:10px 20px;border-radius:8px;border:1px solid #ddd;background:#fff;font-size:14px;font-weight:500;cursor:pointer;transition:all 0.15s;color:#1a1a1a}
+.btn:hover{background:#f5f5f5}
+.btn:disabled{opacity:0.4;cursor:default}
+.btn-primary{background:#185FA5;color:#fff;border-color:#185FA5}
+.btn-primary:hover{background:#0C447C}
+.btn-danger{background:#E24B4A;color:#fff;border-color:#E24B4A}
+.btn-row{display:flex;gap:8px;margin-top:4px}
+.room-code{font-size:36px;font-weight:700;letter-spacing:6px;text-align:center;padding:14px;background:#f5f4f0;border-radius:10px;margin:12px 0;color:#185FA5}
+.copy-link{display:flex;align-items:center;gap:8px;background:#f0f7ff;border:1px solid #B5D4F4;border-radius:8px;padding:10px 12px;margin:8px 0}
+.copy-link input{flex:1;border:none;background:transparent;font-size:12px;color:#185FA5;outline:none}
+.copy-link button{font-size:12px;padding:4px 10px;white-space:nowrap}
+.player-list{margin:12px 0}
+.player-item{display:flex;align-items:center;gap:8px;padding:8px 0;border-bottom:0.5px solid #eee;font-size:14px}
+.player-item:last-child{border-bottom:none}
+.dot{width:8px;height:8px;border-radius:50%}
+.error-msg{color:#E24B4A;font-size:13px;margin-top:6px}
+
+/* ── Game ── */
+#screen-game{padding:12px;max-width:1140px;margin:0 auto}
+.top-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px}
+.top-bar h1{font-size:22px;font-weight:600;letter-spacing:-0.5px}
+.status-pill{font-size:13px;padding:4px 12px;border-radius:20px;background:#f0f7ff;color:#185FA5;font-weight:500}
+.status-pill.my-turn{background:#e8f5e9;color:#3B6D11}
+
+.game-layout{display:grid;grid-template-columns:1fr 260px;gap:12px}
+@media(max-width:820px){.game-layout{grid-template-columns:1fr}}
+
+.board-outer{overflow-x:auto}
+#board{display:grid;grid-template-columns:repeat(12,1fr);gap:2px;min-width:480px}
+.cell{aspect-ratio:1;border-radius:4px;border:0.5px solid #ddd;display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:500;cursor:default;background:#f9f9f8;color:#999;user-select:none;transition:all 0.1s}
+.cell.placed{color:#fff;border-color:transparent}
+.cell.orphan{background:#fff;color:#333;border:0.5px solid #bbb}
+.cell.playable{border:2px solid #185FA5;background:#e6f1fb;color:#185FA5;cursor:pointer}
+.cell.playable:hover{background:#B5D4F4}
+.cell.selected{outline:3px solid #185FA5;outline-offset:-1px}
+.cell[data-chain="worldwide"]{background:#185FA5}
+.cell[data-chain="luxor"]{background:#E24B4A}
+.cell[data-chain="continental"]{background:#639922}
+.cell[data-chain="imperial"]{background:#BA7517}
+.cell[data-chain="american"]{background:#9E3DB5}
+.cell[data-chain="festival"]{background:#1D9E75}
+.cell[data-chain="tower"]{background:#888780}
+
+.sidebar{display:flex;flex-direction:column;gap:10px}
+.panel{background:#fff;border:0.5px solid #ddd;border-radius:12px;padding:14px}
+.panel h3{font-size:13px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px}
+
+.chain-row{display:flex;align-items:center;gap:8px;padding:5px 0;font-size:13px}
+.chain-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0}
+.chain-name{flex:1;color:#1a1a1a}
+.chain-price{color:#666;font-size:12px}
+.chain-safe{font-size:10px;padding:2px 6px;border-radius:10px;background:#e8f5e9;color:#3B6D11;font-weight:500}
+
+.player-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid #eee;font-size:13px}
+.player-row:last-child{border-bottom:none}
+.turn-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;transition:background 0.3s}
+.player-name{flex:1;font-weight:500}
+.player-cash{font-size:12px;color:#666}
+
+.hand-panel{background:#fff;border:0.5px solid #ddd;border-radius:12px;padding:14px;margin-top:10px}
+.hand-panel h3{font-size:13px;font-weight:600;color:#666;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:10px}
+.hand{display:flex;flex-wrap:wrap;gap:6px}
+.tile-btn{padding:6px 12px;font-size:12px;font-weight:600;border-radius:7px;border:1px solid #ddd;background:#f9f9f8;cursor:pointer;color:#1a1a1a;transition:all 0.15s}
+.tile-btn:hover{border-color:#185FA5;background:#e6f1fb;color:#185FA5}
+.tile-btn.selected{background:#185FA5;color:#fff;border-color:#185FA5}
+.tile-btn:disabled{opacity:0.35;cursor:default}
+
+.action-row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+
+.stock-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px}
+.sc{padding:5px 4px;border-radius:6px;text-align:center}
+.sc-name{font-size:9px;font-weight:600;margin-bottom:2px}
+.sc-val{font-size:14px;font-weight:600}
+
+.log{max-height:110px;overflow-y:auto}
+.log-item{font-size:12px;color:#666;padding:3px 0;border-bottom:0.5px solid #f0f0f0}
+.log-item:last-child{border-bottom:none}
+
+/* ── Modal ── */
+.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,0.4);display:flex;align-items:center;justify-content:center;z-index:200;padding:1rem}
+.modal{background:#fff;border-radius:16px;padding:1.5rem;max-width:400px;width:100%;max-height:90vh;overflow-y:auto}
+.modal h3{font-size:17px;font-weight:600;margin-bottom:8px}
+.modal p{font-size:14px;color:#555;margin-bottom:12px}
+.chain-choice-grid{display:flex;flex-wrap:wrap;gap:8px;margin:8px 0}
+.chain-choice-btn{padding:8px 14px;border-radius:8px;border:2px solid;background:#fff;font-size:13px;font-weight:600;cursor:pointer;transition:all 0.15s}
+.chain-choice-btn:hover{opacity:0.85}
+.buy-row{display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid #eee;gap:8px}
+.buy-row:last-of-type{border-bottom:none}
+.buy-chain-info{display:flex;align-items:center;gap:8px;font-size:13px;flex:1}
+.qty-ctrl{display:flex;align-items:center;gap:8px}
+.qty-btn{width:26px;height:26px;border-radius:50%;border:1px solid #ddd;background:#f5f5f5;cursor:pointer;font-size:15px;line-height:1;display:flex;align-items:center;justify-content:center;font-weight:500}
+.qty-btn:disabled{opacity:0.35;cursor:default}
+.qty-val{min-width:18px;text-align:center;font-weight:600;font-size:14px}
+.buy-total{font-size:13px;color:#555;margin:12px 0}
+.buy-total strong{color:#1a1a1a}
+.merger-options{display:flex;flex-direction:column;gap:8px;margin:10px 0}
+.merger-opt{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border:1px solid #eee;border-radius:8px;font-size:13px}
+.merger-opt-label{font-weight:500}
+.merger-opt-sub{font-size:12px;color:#888;margin-top:2px}
+.score-list{margin:8px 0}
+.score-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:0.5px solid #eee;font-size:14px}
+.score-row:last-child{border-bottom:none}
+.score-winner{color:#639922;font-weight:600}
+.trophy{margin-right:6px}
+
+.waiting-overlay{position:fixed;inset:0;background:rgba(255,255,255,0.85);display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:150;gap:12px}
+.waiting-overlay p{font-size:15px;color:#555;font-weight:500}
+.spinner{width:32px;height:32px;border:3px solid #ddd;border-top-color:#185FA5;border-radius:50%;animation:spin 0.8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- ── LOBBY ── -->
+<div id="screen-lobby" class="screen active">
+  <div class="lobby-card">
+    <h1>Acquire</h1>
+    <p class="sub">Hotelketens bouwen, fusies regelen, de rijkste speler wint.</p>
+    <div class="field"><label>Jouw naam</label><input id="player-name" placeholder="bijv. Caspar" maxlength="16"/></div>
+    <div id="error-msg" class="error-msg" style="display:none"></div>
+
+    <div id="lobby-start">
+      <div class="btn-row">
+        <button class="btn btn-primary" style="flex:1" onclick="hostGame()">Nieuw spel</button>
+        <button class="btn" style="flex:1" onclick="document.getElementById('lobby-join').style.display='block';this.closest('.btn-row').style.display='none'">Deelnemen</button>
+      </div>
+    </div>
+
+    <div id="lobby-join" style="display:none">
+      <div class="field" style="margin-top:12px"><label>Spelcode</label>
+        <input id="join-code" placeholder="bijv. A3F7" maxlength="4" style="text-transform:uppercase" oninput="this.value=this.value.toUpperCase()"/>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" style="flex:1" onclick="joinGame()">Deelnemen</button>
+        <button class="btn" onclick="document.getElementById('lobby-join').style.display='none';document.getElementById('lobby-start').querySelector('.btn-row').style.display='flex'">Terug</button>
+      </div>
+    </div>
+
+    <div id="lobby-wait" style="display:none;margin-top:1.5rem">
+      <p style="font-size:13px;color:#666;margin-bottom:4px">Spelcode — deel met vrienden:</p>
+      <div class="room-code" id="room-code-display"></div>
+      <div class="copy-link">
+        <input id="invite-link" readonly/>
+        <button class="btn" onclick="copyLink()">Kopieer link</button>
+      </div>
+      <div class="player-list" id="lobby-player-list"></div>
+      <div id="lobby-host-actions" style="display:none;margin-top:12px">
+        <button class="btn btn-primary" style="width:100%" onclick="startGame()">Spel starten</button>
+        <p style="font-size:12px;color:#999;margin-top:6px;text-align:center">Minimaal 2 spelers vereist</p>
+      </div>
+      <div id="lobby-guest-msg" style="display:none;font-size:13px;color:#666;margin-top:12px;text-align:center">Wachten op de host om te starten...</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── GAME ── -->
+<div id="screen-game" class="screen">
+  <div class="top-bar">
+    <h1>Acquire</h1>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <span id="status-pill" class="status-pill">Laden...</span>
+      <button class="btn" onclick="showRules()">Regels</button>
+      <button class="btn btn-danger" onclick="if(confirm('Spel verlaten?'))location.reload()">Verlaten</button>
+    </div>
+  </div>
+  <div class="game-layout">
+    <div>
+      <div class="board-outer"><div id="board"></div></div>
+      <div class="hand-panel">
+        <h3>Jouw tegels</h3>
+        <div class="hand" id="hand"></div>
+        <div class="action-row" id="action-row"></div>
+      </div>
+    </div>
+    <div class="sidebar">
+      <div class="panel"><h3>Hotelketens</h3><div id="chains-panel"></div></div>
+      <div class="panel"><h3>Spelers</h3><div id="players-panel"></div></div>
+      <div class="panel"><h3>Jouw aandelen</h3><div class="stock-grid" id="my-stocks"></div></div>
+      <div class="panel"><h3>Logboek</h3><div class="log" id="log"></div></div>
+    </div>
+  </div>
+</div>
+
+<div id="modal-root"></div>
+<div id="waiting" style="display:none" class="waiting-overlay"><div class="spinner"></div><p id="waiting-msg">Wachten...</p></div>
+
+<script>
+const CHAINS=['worldwide','luxor','continental','imperial','american','festival','tower'];
+const CHAIN_COLORS={worldwide:'#185FA5',luxor:'#E24B4A',continental:'#639922',imperial:'#BA7517',american:'#9E3DB5',festival:'#1D9E75',tower:'#888780'};
+const CHAIN_LABELS={worldwide:'Worldwide',luxor:'Luxor',continental:'Continental',imperial:'Imperial',american:'American',festival:'Festival',tower:'Tower'};
+const ROWS=['A','B','C','D','E','F','G','H','I'];
+
+const socket = io();
+let myId = null;
+let roomCode = null;
+let isHost = false;
+let G = null;
+let selectedTile = null;
+
+// Check for invite link
+const urlParams = new URLSearchParams(window.location.search);
+const inviteCode = urlParams.get('room');
+if(inviteCode){
+  document.getElementById('join-code').value = inviteCode.toUpperCase();
+  document.getElementById('lobby-start').querySelector('.btn-row').style.display='none';
+  document.getElementById('lobby-join').style.display='block';
+}
+
+socket.on('connect', ()=>{ myId = socket.id; });
+
+socket.on('hosted', ({code})=>{
+  roomCode = code;
+  isHost = true;
+  showWaitLobby();
+});
+socket.on('joined', ({code})=>{
+  roomCode = code;
+  isHost = false;
+  showWaitLobby();
+});
+socket.on('lobby', (players)=>{
+  renderLobbyPlayers(players);
+});
+socket.on('error', (msg)=>{
+  const el=document.getElementById('error-msg');
+  el.textContent=msg; el.style.display='block';
+});
+socket.on('gameState', (state)=>{
+  G = state;
+  hideWaiting();
+  document.getElementById('screen-lobby').classList.remove('active');
+  document.getElementById('screen-game').classList.add('active');
+  renderGame();
+});
+socket.on('chooseChain', ({tile, orphans, available})=>{
+  showFoundModal(tile, orphans, available);
+});
+socket.on('chooseMerge', ({tile, chains})=>{
+  showMergeChoiceModal(tile, chains);
+});
+socket.on('mergerChoice', ({defunct, survivor, qty, price})=>{
+  showMergerDecisionModal(defunct, survivor, qty, price);
+});
+
+function hostGame(){
+  const name=document.getElementById('player-name').value.trim()||'Speler';
+  socket.emit('host', {name});
+}
+function joinGame(){
+  const name=document.getElementById('player-name').value.trim()||'Speler';
+  const code=document.getElementById('join-code').value.trim().toUpperCase();
+  if(!code){showError('Voer een spelcode in.');return;}
+  socket.emit('join', {code, name});
+}
+function showWaitLobby(){
+  document.getElementById('lobby-start').style.display='none';
+  document.getElementById('lobby-join').style.display='none';
+  document.getElementById('lobby-wait').style.display='block';
+  document.getElementById('room-code-display').textContent=roomCode;
+  const link=window.location.origin+window.location.pathname+'?room='+roomCode;
+  document.getElementById('invite-link').value=link;
+  if(isHost){
+    document.getElementById('lobby-host-actions').style.display='block';
+    document.getElementById('lobby-guest-msg').style.display='none';
+  } else {
+    document.getElementById('lobby-host-actions').style.display='none';
+    document.getElementById('lobby-guest-msg').style.display='block';
+  }
+}
+function copyLink(){
+  const inp=document.getElementById('invite-link');
+  inp.select();
+  navigator.clipboard.writeText(inp.value).catch(()=>{});
+  const btn=inp.nextElementSibling;
+  btn.textContent='Gekopieerd!';
+  setTimeout(()=>btn.textContent='Kopieer link',2000);
+}
+function renderLobbyPlayers(players){
+  document.getElementById('lobby-player-list').innerHTML=players.map(p=>`
+    <div class="player-item">
+      <div class="dot" style="background:${p.disconnected?'#ddd':'#639922'}"></div>
+      <span>${p.name}${p.id===myId?' (jij)':''}${p.host?' — host':''}</span>
+    </div>`).join('');
+}
+function startGame(){
+  socket.emit('start',{code:roomCode});
+}
+function showError(msg){
+  const el=document.getElementById('error-msg');
+  el.textContent=msg; el.style.display='block';
+}
+function showWaiting(msg){
+  document.getElementById('waiting-msg').textContent=msg||'Wachten...';
+  document.getElementById('waiting').style.display='flex';
+}
+function hideWaiting(){
+  document.getElementById('waiting').style.display='none';
+}
+
+// ── Render ──
+function me(){return G&&G.players.find(p=>p.id===myId);}
+function isMyTurn(){return G&&G.players[G.currentPlayer]&&G.players[G.currentPlayer].id===myId;}
+function chainTiles(chain){return Object.keys(G.board).filter(t=>G.board[t]&&G.board[t].chain===chain);}
+function tileNeighbors(tile){
+  const r=tile[0],c=parseInt(tile.slice(1));
+  const ri=ROWS.indexOf(r);
+  const nb=[];
+  if(ri>0) nb.push(ROWS[ri-1]+c);
+  if(ri<8) nb.push(ROWS[ri+1]+c);
+  if(c>1) nb.push(r+(c-1));
+  if(c<12) nb.push(r+(c+1));
+  return nb;
+}
+function getChainsFromNeighbors(tile){
+  const cs=new Set();
+  tileNeighbors(tile).filter(t=>G.board[t]).forEach(n=>{if(G.board[n]&&G.board[n].chain)cs.add(G.board[n].chain);});
+  return [...cs];
+}
+function classifyTileClient(tile){
+  if(G.board[tile]) return 'used';
+  const bNb=tileNeighbors(tile).filter(t=>G.board[t]);
+  if(!bNb.length) return 'orphan';
+  const chains=getChainsFromNeighbors(tile);
+  if(chains.length===0) return 'found_or_extend';
+  if(chains.length===1) return 'extend';
+  const safe=chains.filter(c=>chainTiles(c).length>=11);
+  if(safe.length>=2) return 'unplayable';
+  return 'merge';
+}
+
+function renderGame(){
+  if(!G) return;
+  renderBoard();
+  renderHand();
+  renderChains();
+  renderPlayers();
+  renderMyStocks();
+  renderLog();
+  renderStatus();
+  if(G.gameOver) showEndModal();
+  else if(G.merger && isMyTurn()){
+    // merger decisions are handled via socket events
+  }
+}
+
+function renderBoard(){
+  const el=document.getElementById('board');
+  el.innerHTML='';
+  for(const r of ROWS){
+    for(let c=1;c<=12;c++){
+      const t=r+c;
+      const div=document.createElement('div');
+      div.className='cell';
+      div.textContent=t;
+      if(G.board[t]){
+        if(G.board[t].chain){
+          div.className='cell placed';
+          div.dataset.chain=G.board[t].chain;
+        } else {
+          div.className='cell orphan';
+        }
+      } else if(isMyTurn()&&G.phase==='place'&&me()&&me().hand.includes(t)){
+        const type=classifyTileClient(t);
+        if(type!=='unplayable'){
+          div.classList.add('playable');
+          if(t===selectedTile) div.classList.add('selected');
+          div.onclick=()=>selectTile(t);
+        }
+      }
+      el.appendChild(div);
+    }
+  }
+}
+
+function selectTile(tile){
+  selectedTile=tile;
+  renderBoard();
+  renderHandActions();
+}
+
+function renderHand(){
+  const el=document.getElementById('hand');
+  if(!me()){el.innerHTML='';return;}
+  el.innerHTML='';
+  me().hand.forEach(t=>{
+    const btn=document.createElement('button');
+    btn.className='tile-btn'+(t===selectedTile?' selected':'');
+    btn.textContent=t;
+    const type=classifyTileClient(t);
+    if(type==='unplayable'){btn.disabled=true;btn.title='Onspeelbaar (twee veilige ketens)';}
+    if(isMyTurn()&&G.phase==='place') btn.onclick=()=>selectTile(t);
+    else btn.disabled=true;
+    el.appendChild(btn);
+  });
+  renderHandActions();
+}
+
+function renderHandActions(){
+  const el=document.getElementById('action-row');
+  el.innerHTML='';
+  if(!isMyTurn()){
+    el.innerHTML=`<span style="font-size:13px;color:#888">Beurt van ${G.players[G.currentPlayer]?.name}...</span>`;
+    return;
+  }
+  if(G.phase==='place'){
+    if(selectedTile){
+      const btn=document.createElement('button');
+      btn.className='btn btn-primary';
+      btn.textContent=`Tegel ${selectedTile} plaatsen`;
+      btn.onclick=()=>{
+        socket.emit('placeTile',{code:roomCode,tile:selectedTile});
+        selectedTile=null;
+        showWaiting('Tegel wordt geplaatst...');
+      };
+      el.appendChild(btn);
+    } else {
+      el.innerHTML=`<span style="font-size:13px;color:#888">Selecteer een tegel om te plaatsen</span>`;
+    }
+  } else if(G.phase==='buy'){
+    const b1=document.createElement('button');
+    b1.className='btn btn-primary';
+    b1.textContent='Aandelen kopen';
+    b1.onclick=showBuyModal;
+    el.appendChild(b1);
+    const b2=document.createElement('button');
+    b2.className='btn';
+    b2.textContent='Beurt overslaan';
+    b2.onclick=()=>socket.emit('buyStocks',{code:roomCode,purchases:{}});
+    el.appendChild(b2);
+  }
+}
+
+function renderChains(){
+  document.getElementById('chains-panel').innerHTML=CHAINS.map(c=>{
+    const ch=G.chains[c];
+    const size=ch.active?chainTiles(c).length:0;
+    const price=getStockPrice(c,size);
+    const safe=size>=11?'<span class="chain-safe">Veilig</span>':'';
+    return`<div class="chain-row">
+      <div class="chain-dot" style="background:${CHAIN_COLORS[c]}"></div>
+      <span class="chain-name">${CHAIN_LABELS[c]}${ch.active?' ('+size+')':''}</span>
+      <span class="chain-price">${ch.active?'$'+price:'-'}</span>
+      ${safe}
+    </div>`;
+  }).join('');
+}
+
+function renderPlayers(){
+  document.getElementById('players-panel').innerHTML=G.players.map((p,i)=>{
+    const isCur=i===G.currentPlayer;
+    return`<div class="player-row">
+      <div class="turn-dot" style="background:${isCur?'#639922':'#eee'}"></div>
+      <span class="player-name">${p.name}${p.id===myId?' (jij)':''}</span>
+      <span class="player-cash">$${p.cash.toLocaleString()}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderMyStocks(){
+  const p=me();
+  if(!p){document.getElementById('my-stocks').innerHTML='';return;}
+  document.getElementById('my-stocks').innerHTML=CHAINS.map(c=>`
+    <div class="sc" style="background:${CHAIN_COLORS[c]}22">
+      <div class="sc-name" style="color:${CHAIN_COLORS[c]}">${CHAIN_LABELS[c].slice(0,4)}</div>
+      <div class="sc-val">${p.stocks[c]||0}</div>
+    </div>`).join('');
+}
+
+function renderLog(){
+  document.getElementById('log').innerHTML=(G.log||[]).map(l=>`<div class="log-item">${l}</div>`).join('');
+}
+
+function renderStatus(){
+  const el=document.getElementById('status-pill');
+  if(G.gameOver){el.textContent='Spel afgelopen!';el.className='status-pill';return;}
+  if(isMyTurn()){
+    el.textContent=G.phase==='place'?'Jouw beurt: tegel plaatsen':'Jouw beurt: aandelen kopen';
+    el.className='status-pill my-turn';
+  } else {
+    el.textContent='Beurt van '+(G.players[G.currentPlayer]?.name||'...');
+    el.className='status-pill';
+  }
+}
+
+function getStockPrice(chain,size){
+  if(!size||size<=0) return 0;
+  const tierMap={worldwide:2,luxor:2,continental:3,imperial:3,american:4,festival:4,tower:4};
+  const tier=tierMap[chain]||4;
+  const table={2:[200,200,300,300,300,400,400,400,500,500,500,600],3:[300,300,400,400,400,500,500,500,600,600,600,700],4:[400,400,500,500,500,600,600,600,700,700,700,800]};
+  if(size===1) return table[tier][0];
+  return table[tier][Math.min(size-2,11)];
+}
+
+// ── Modals ──
+function showFoundModal(tile, orphans, available){
+  document.getElementById('modal-root').innerHTML=`<div class="modal-bg"><div class="modal">
+    <h3>Nieuwe keten stichten</h3>
+    <p>Tegel ${tile} verbindt ${orphans.length+1} tegels. Kies een hotelketen:</p>
+    <div class="chain-choice-grid">
+      ${available.map(c=>`<button class="chain-choice-btn" style="border-color:${CHAIN_COLORS[c]};color:${CHAIN_COLORS[c]}" onclick="pickChain('${tile}',${JSON.stringify(orphans)},'${c}')">${CHAIN_LABELS[c]}</button>`).join('')}
+    </div>
+  </div></div>`;
+}
+function pickChain(tile, orphans, chainName){
+  document.getElementById('modal-root').innerHTML='';
+  socket.emit('foundChain',{code:roomCode,tile,orphans,chainName});
+}
+
+function showMergeChoiceModal(tile, chains){
+  document.getElementById('modal-root').innerHTML=`<div class="modal-bg"><div class="modal">
+    <h3>Fusie: gelijke grootte</h3>
+    <p>Beide ketens zijn even groot. Kies de overlevende keten:</p>
+    <div class="chain-choice-grid">
+      ${chains.map((c,i)=>`<button class="chain-choice-btn" style="border-color:${CHAIN_COLORS[c]};color:${CHAIN_COLORS[c]}" onclick="pickMerge('${tile}','${c}','${chains[1-i]}')">${CHAIN_LABELS[c]} (${chainTiles(c).length})</button>`).join('')}
+    </div>
+  </div></div>`;
+}
+function pickMerge(tile, survivor, defunct){
+  document.getElementById('modal-root').innerHTML='';
+  socket.emit('chooseMerge',{code:roomCode,tile,survivor,defunct});
+}
+
+function showMergerDecisionModal(defunct, survivor, qty, price){
+  document.getElementById('modal-root').innerHTML=`<div class="modal-bg"><div class="modal">
+    <h3>Fusie: ${CHAIN_LABELS[defunct]} is defunct</h3>
+    <p>Jij hebt <strong>${qty}</strong> aandelen ${CHAIN_LABELS[defunct]}.<br>Verkoopprijs: $${price} per aandeel</p>
+    <div class="merger-options">
+      <div class="merger-opt">
+        <div><div class="merger-opt-label">Alles verkopen</div><div class="merger-opt-sub">Ontvang $${price*qty}</div></div>
+        <button class="btn btn-primary" onclick="mergerDecide('sell')">Verkopen</button>
+      </div>
+      <div class="merger-opt">
+        <div><div class="merger-opt-label">Ruilen (2:1)</div><div class="merger-opt-sub">Ontvang ${Math.floor(qty/2)}x ${CHAIN_LABELS[survivor]}</div></div>
+        <button class="btn" onclick="mergerDecide('trade')">Ruilen</button>
+      </div>
+      <div class="merger-opt">
+        <div><div class="merger-opt-label">Houden</div><div class="merger-opt-sub">Aandelen worden later niets waard</div></div>
+        <button class="btn" onclick="mergerDecide('keep')">Houden</button>
+      </div>
+    </div>
+  </div></div>`;
+}
+function mergerDecide(choice){
+  document.getElementById('modal-root').innerHTML='';
+  socket.emit('mergerDecision',{code:roomCode,choice});
+}
+
+function showBuyModal(){
+  const active=CHAINS.filter(c=>G.chains[c].active);
+  const purchases=Object.fromEntries(CHAINS.map(c=>[c,0]));
+  function totalBought(){return Object.values(purchases).reduce((a,b)=>a+b,0);}
+  function totalCost(){return Object.entries(purchases).reduce((s,[c,q])=>s+getStockPrice(c,chainTiles(c).length)*q,0);}
+  function render(){
+    const rows=active.map(c=>{
+      const size=chainTiles(c).length;
+      const price=getStockPrice(c,size);
+      const avail=G.chains[c].stocks;
+      const qty=purchases[c];
+      return`<div class="buy-row">
+        <div class="buy-chain-info">
+          <div style="width:11px;height:11px;border-radius:50%;background:${CHAIN_COLORS[c]};flex-shrink:0"></div>
+          <div><div style="font-weight:500;font-size:13px">${CHAIN_LABELS[c]}</div><div style="font-size:11px;color:#888">$${price} | ${avail} beschikbaar</div></div>
+        </div>
+        <div class="qty-ctrl">
+          <button class="qty-btn" onclick="_adj('${c}',-1)">−</button>
+          <span class="qty-val">${qty}</span>
+          <button class="qty-btn" onclick="_adj('${c}',1)" ${totalBought()>=3||avail<=qty||totalCost()+price>me().cash?'disabled':''}>+</button>
+        </div>
+      </div>`;
+    }).join('');
+    document.getElementById('modal-root').innerHTML=`<div class="modal-bg"><div class="modal">
+      <h3>Aandelen kopen <span style="font-size:14px;color:#888;font-weight:400">(max 3)</span></h3>
+      ${rows}
+      <div class="buy-total">Totaal: <strong>$${totalCost()}</strong> &nbsp;|&nbsp; Kas: <strong>$${me().cash.toLocaleString()}</strong></div>
+      <div class="btn-row">
+        <button class="btn btn-primary" ${totalCost()>me().cash?'disabled':''} onclick="_confirmBuy()">Kopen</button>
+        <button class="btn" onclick="_cancelBuy()">Overslaan</button>
+      </div>
+    </div></div>`;
+  }
+  window._adj=(c,d)=>{
+    if(d>0&&totalBought()>=3) return;
+    if(d>0&&G.chains[c].stocks<=purchases[c]) return;
+    if(d>0&&totalCost()+getStockPrice(c,chainTiles(c).length)>me().cash) return;
+    purchases[c]=Math.max(0,purchases[c]+d);
+    render();
+  };
+  window._confirmBuy=()=>{
+    document.getElementById('modal-root').innerHTML='';
+    socket.emit('buyStocks',{code:roomCode,purchases});
+  };
+  window._cancelBuy=()=>{
+    document.getElementById('modal-root').innerHTML='';
+    socket.emit('buyStocks',{code:roomCode,purchases:{}});
+  };
+  render();
+}
+
+function showEndModal(){
+  const sorted=[...G.players].sort((a,b)=>b.cash-a.cash);
+  document.getElementById('modal-root').innerHTML=`<div class="modal-bg"><div class="modal">
+    <h3>Spel afgelopen!</h3>
+    <div class="score-list">
+      ${sorted.map((p,i)=>`<div class="score-row ${i===0?'score-winner':''}">
+        <span>${i===0?'<span class="trophy">🏆</span>':''} ${p.name}${p.id===myId?' (jij)':''}</span>
+        <span>$${p.cash.toLocaleString()}</span>
+      </div>`).join('')}
+    </div>
+    <button class="btn btn-primary" style="width:100%;margin-top:12px" onclick="location.href=location.pathname">Nieuw spel</button>
+  </div></div>`;
+}
+
+function showRules(){
+  document.getElementById('modal-root').innerHTML=`<div class="modal-bg" onclick="if(event.target.classList.contains('modal-bg'))this.innerHTML=''"><div class="modal">
+    <h3>Spelregels Acquire</h3>
+    <p><strong>Doel:</strong> Meeste geld aan het einde van het spel.</p>
+    <p style="margin-top:8px"><strong>Beurt:</strong> 1) Tegel plaatsen, 2) Aandelen kopen (max 3), 3) Nieuwe tegel trekken.</p>
+    <p style="margin-top:8px"><strong>Keten stichten:</strong> Twee aaneengesloten tegels vormen een keten. Oprichter krijgt 1 gratis aandeel.</p>
+    <p style="margin-top:8px"><strong>Fusie:</strong> Grotere keten slokt kleinere op. Aandeelhouders ontvangen meerderheids- en minderheidsbonus. Aandelen kun je verkopen, ruilen (2:1) of houden.</p>
+    <p style="margin-top:8px"><strong>Veilig:</strong> Een keten met 11+ tegels kan niet meer worden overgenomen.</p>
+    <p style="margin-top:8px"><strong>Einde:</strong> Een keten heeft 41+ tegels, of alle actieve ketens zijn veilig.</p>
+    <button class="btn" style="width:100%;margin-top:14px" onclick="document.getElementById('modal-root').innerHTML=''">Sluiten</button>
+  </div></div>`;
+}
+</script>
+</body>
+</html>
